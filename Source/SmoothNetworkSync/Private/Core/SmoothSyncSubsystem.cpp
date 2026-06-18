@@ -52,7 +52,17 @@ void USmoothSyncSubsystem::Tick(float DeltaTime)
 
     const float CurrentLocalTime = World->GetTimeSeconds();
 
-    // Single loop
+    TArray<FVector> LocalPawnPositions;
+    for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+    {
+        APlayerController* PC = It->Get();
+        if (PC && PC->GetPawn())
+        {
+            LocalPawnPositions.Add(PC->GetPawn()->GetActorLocation());
+        }
+    }
+
+    // Loop
     for (int32 i = ActiveComponents.Num() - 1; i >= 0; --i)
     {
         UNetworkInterpolatorComponent* Comp = ActiveComponents[i];
@@ -77,14 +87,13 @@ void USmoothSyncSubsystem::Tick(float DeltaTime)
             if (OwnerActor->HasAuthority())
             {
                 float MinDistSq = MAX_flt;
-                for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+                const FVector OwnerLoc = OwnerActor->GetActorLocation();
+                for (const FVector& PawnLoc : LocalPawnPositions)
                 {
-                    APlayerController* PC = It->Get();
-                    if (PC && PC->GetPawn())
+                    float DistSq = FVector::DistSquared(PawnLoc, OwnerLoc);
+                    if (DistSq < MinDistSq)
                     {
-                        float DistSq = FVector::DistSquared(PC->GetPawn()->GetActorLocation(), OwnerActor->GetActorLocation());
-                        if (DistSq < MinDistSq)
-                            MinDistSq = DistSq;
+                        MinDistSq = DistSq;
                     }
                 }
 
@@ -436,20 +445,6 @@ void USmoothSyncSubsystem::EvaluateDualState(UNetworkInterpolatorComponent* InCo
 
 void USmoothSyncSubsystem::HandleAutonomousProxyPrediction(AActor* OwnerActor, UNetworkInterpolatorComponent* Comp, float DeltaTime, float CurrentLocalTime) const
 {
-    // --- Constants for tuning ---
-    constexpr float ZDampingFactor = 0.15f;
-    constexpr float BaseSpringStiffness = 5.0f;
-    constexpr float SpringStiffnessScale = 0.2f;
-    constexpr float ErrorThresholdForScaling = 100.0f;
-    constexpr float MaxLinearNudgeAccel = 5000.0f;
-    
-    constexpr float HardSnapAngleDegrees = 45.0f;
-    constexpr float SoftSnapAngleDegrees = 5.0f;
-    constexpr float AngularSpringStiffness = 8.0f;
-    constexpr float MaxAngularNudgeAccel = 15.0f;
-    constexpr float PositionInterpSpeed = 10.0f;
-    constexpr float RotationInterpSpeed = 5.0f;
-
     const FSmoothSyncState_Pos& LatestServerPos = Comp->GetPosState(0);
     FVector LocalPos = OwnerActor->GetActorLocation();
     
@@ -481,24 +476,24 @@ void USmoothSyncSubsystem::HandleAutonomousProxyPrediction(AActor* OwnerActor, U
         if (bIsSimulating)
         {
             FVector Error = ExtrapServerPos - LocalPos;
-            Error.Z *= ZDampingFactor;
+            Error.Z *= Comp->ZDampingFactor;
 
             float ErrorMag = Error.Size();
-            float SpringStiffness = BaseSpringStiffness;
+            float SpringStiffness = Comp->BaseSpringStiffness;
             
-            if (ErrorMag > ErrorThresholdForScaling)
+            if (ErrorMag > Comp->ErrorThresholdForScaling)
             {
-                SpringStiffness += (ErrorMag - ErrorThresholdForScaling) * SpringStiffnessScale;
+                SpringStiffness += (ErrorMag - Comp->ErrorThresholdForScaling) * Comp->SpringStiffnessScale;
             }
 
             FVector NudgeAccel = Error * SpringStiffness; 
-            NudgeAccel = NudgeAccel.GetClampedToMaxSize(MaxLinearNudgeAccel);
+            NudgeAccel = NudgeAccel.GetClampedToMaxSize(Comp->MaxLinearNudgeAccel);
             
             RootPrim->SetPhysicsLinearVelocity(RootPrim->GetPhysicsLinearVelocity() + (NudgeAccel * DeltaTime));
         }
         else
         {
-            FVector CorrectedPos = FMath::VInterpTo(LocalPos, ExtrapServerPos, DeltaTime, PositionInterpSpeed);
+            FVector CorrectedPos = FMath::VInterpTo(LocalPos, ExtrapServerPos, DeltaTime, Comp->PositionInterpSpeed);
             OwnerActor->SetActorLocation(CorrectedPos, false, nullptr, ETeleportType::None);
         }
     }
@@ -509,7 +504,7 @@ void USmoothSyncSubsystem::HandleAutonomousProxyPrediction(AActor* OwnerActor, U
         FQuat ServerRot = Comp->GetRotState(0).Rotation;
         float AngularDist = LocalRot.AngularDistance(ServerRot);
         
-        if (AngularDist > FMath::DegreesToRadians(HardSnapAngleDegrees))
+        if (AngularDist > FMath::DegreesToRadians(Comp->HardSnapAngleDegrees))
         {
             OwnerActor->SetActorRotation(ServerRot, ETeleportType::TeleportPhysics);
             if (bIsSimulating)
@@ -517,7 +512,7 @@ void USmoothSyncSubsystem::HandleAutonomousProxyPrediction(AActor* OwnerActor, U
                 RootPrim->SetPhysicsAngularVelocityInDegrees(FVector::ZeroVector);
             }
         }
-        else if (AngularDist > FMath::DegreesToRadians(SoftSnapAngleDegrees))
+        else if (AngularDist > FMath::DegreesToRadians(Comp->SoftSnapAngleDegrees))
         {
             if (bIsSimulating)
             {
@@ -527,15 +522,15 @@ void USmoothSyncSubsystem::HandleAutonomousProxyPrediction(AActor* OwnerActor, U
                 
                 if (Angle > PI) Angle -= 2.0f * PI;
                 
-                FVector AngularAccel = Axis * Angle * AngularSpringStiffness; 
-                AngularAccel = AngularAccel.GetClampedToMaxSize(MaxAngularNudgeAccel);
+                FVector AngularAccel = Axis * Angle * Comp->AngularSpringStiffness; 
+                AngularAccel = AngularAccel.GetClampedToMaxSize(Comp->MaxAngularNudgeAccel);
                 
                 FVector AngularVelChange = FMath::RadiansToDegrees(AngularAccel) * DeltaTime;
                 RootPrim->SetPhysicsAngularVelocityInDegrees(RootPrim->GetPhysicsAngularVelocityInDegrees() + AngularVelChange);
             }
             else
             {
-                FQuat CorrectedRot = FQuat::Slerp(LocalRot, ServerRot, DeltaTime * RotationInterpSpeed);
+                FQuat CorrectedRot = FQuat::Slerp(LocalRot, ServerRot, DeltaTime * Comp->RotationInterpSpeed);
                 OwnerActor->SetActorRotation(CorrectedRot, ETeleportType::None);
             }
         }

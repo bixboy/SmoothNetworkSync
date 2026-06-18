@@ -93,6 +93,42 @@ public:
     bool bIsClientAuthoritative = false;
 
 
+    // --- Autonomous Proxy Prediction ---
+
+    UPROPERTY(EditAnywhere, Category = "Smooth Sync|Autonomous Prediction", meta = (ToolTip = "Damping factor applied to Z-axis prediction errors."))
+    float ZDampingFactor = 0.15f;
+
+    UPROPERTY(EditAnywhere, Category = "Smooth Sync|Autonomous Prediction", meta = (ToolTip = "Base stiffness for the spring used in linear prediction soft correction."))
+    float BaseSpringStiffness = 5.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Smooth Sync|Autonomous Prediction", meta = (ToolTip = "How much the spring stiffness scales up as the prediction error grows."))
+    float SpringStiffnessScale = 0.2f;
+
+    UPROPERTY(EditAnywhere, Category = "Smooth Sync|Autonomous Prediction", meta = (ToolTip = "Distance error threshold before scaling up the spring stiffness."))
+    float ErrorThresholdForScaling = 100.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Smooth Sync|Autonomous Prediction", meta = (ToolTip = "Maximum acceleration that can be applied to nudge the actor to the correct position."))
+    float MaxLinearNudgeAccel = 5000.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Smooth Sync|Autonomous Prediction", meta = (ToolTip = "Angle difference in degrees above which the rotation will hard snap to the server rotation."))
+    float HardSnapAngleDegrees = 45.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Smooth Sync|Autonomous Prediction", meta = (ToolTip = "Angle difference in degrees above which soft angular correction is applied."))
+    float SoftSnapAngleDegrees = 5.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Smooth Sync|Autonomous Prediction", meta = (ToolTip = "Stiffness of the angular spring for soft rotation correction."))
+    float AngularSpringStiffness = 8.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Smooth Sync|Autonomous Prediction", meta = (ToolTip = "Maximum angular acceleration that can be applied for soft rotation correction."))
+    float MaxAngularNudgeAccel = 15.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Smooth Sync|Autonomous Prediction", meta = (ToolTip = "Speed at which position interpolates during soft correction if not simulating physics."))
+    float PositionInterpSpeed = 10.0f;
+
+    UPROPERTY(EditAnywhere, Category = "Smooth Sync|Autonomous Prediction", meta = (ToolTip = "Speed at which rotation interpolates during soft correction if not simulating physics."))
+    float RotationInterpSpeed = 5.0f;
+
+
     // --- Events ---
 
     /** Fired when the interpolation exceeds MaxExtrapolationTime (packet loss or ping spike). */
