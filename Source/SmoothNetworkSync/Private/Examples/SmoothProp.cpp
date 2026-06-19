@@ -1,3 +1,4 @@
+// Copyright (c) Bixboy, 2026. All Rights Reserved.
 #include "SmoothProp.h"
 #include "NetworkInterpolatorComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -34,7 +35,6 @@ void ASmoothProp::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
 
-    // Mouvement circulaire absolu et parfait sur le Serveur (dépendant du framerate serveur, pas d'un timer instable)
     if (HasAuthority())
     {
         const float Time = GetWorld()->GetTimeSeconds();

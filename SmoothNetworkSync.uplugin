@@ -1,13 +1,13 @@
-﻿{
+{
 	"FileVersion": 3,
 	"Version": 1,
 	"VersionName": "1.0",
 	"FriendlyName": "SmoothNetworkSync",
 	"Description": "",
-	"Category": "Other",
+	"Category": "Network",
 	"CreatedBy": "Bixboy",
-	"CreatedByURL": "",
-	"DocsURL": "",
+	"CreatedByURL": "https://bixboy.github.io/Portfolio/index.html",
+	"DocsURL": "https://app.notion.com/p/Smooth-Network-Sync-37d610df67648085a295c1b607f5ae3d?source=copy_link",
 	"MarketplaceURL": "",
 	"CanContainContent": true,
 	"IsBetaVersion": false,
@@ -19,5 +19,6 @@
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
 		}
-	]
+	],
+	"SupportURL": ""
 }

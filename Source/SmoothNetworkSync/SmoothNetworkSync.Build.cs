@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright (c) Bixboy, 2026. All Rights Reserved.
 
 using UnrealBuildTool;
 
@@ -42,7 +42,8 @@ public class SmoothNetworkSync : ModuleRules
 				"Slate",
 				"SlateCore",
 				"NetCore",
-				"InputCore"
+				"InputCore",
+				"EnhancedInput"
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);

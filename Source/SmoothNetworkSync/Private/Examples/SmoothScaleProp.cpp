@@ -1,3 +1,4 @@
+// Copyright (c) Bixboy, 2026. All Rights Reserved.
 #include "SmoothScaleProp.h"
 #include "NetworkInterpolatorComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -21,7 +22,6 @@ ASmoothScaleProp::ASmoothScaleProp()
         MeshComponent->SetStaticMesh(CubeMesh.Object);
     }
     
-    // Setup the network component
     NetworkInterpolator = CreateDefaultSubobject<UNetworkInterpolatorComponent>(TEXT("NetworkInterpolator"));
     NetworkInterpolator->bShowDebugPath = true;
     NetworkInterpolator->bSyncScale = true;

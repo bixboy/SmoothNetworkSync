@@ -1,3 +1,4 @@
+// Copyright (c) Bixboy, 2026. All Rights Reserved.
 #pragma once
 #include "CoreMinimal.h"
 #include "UObject/Interface.h"

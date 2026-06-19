@@ -1,3 +1,4 @@
+// Copyright (c) Bixboy, 2026. All Rights Reserved.
 #include "SmoothPhysicsProp.h"
 #include "NetworkInterpolatorComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -34,5 +35,5 @@ void ASmoothPhysicsProp::BeginPlay()
 
 void ASmoothPhysicsProp::ApplySmoothedTransform_Implementation(const FTransform& InNewTransform, const FVector& InNewVelocity)
 {
-    SetActorTransform(InNewTransform, false, nullptr, ETeleportType::None);
+    SetActorLocationAndRotation(InNewTransform.GetLocation(), InNewTransform.GetRotation(), false, nullptr, ETeleportType::None);
 }

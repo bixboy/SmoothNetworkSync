@@ -1,3 +1,4 @@
+// Copyright (c) Bixboy, 2026. All Rights Reserved.
 #pragma once
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
@@ -71,6 +72,10 @@ public:
     /** Minimum quaternion difference the actor must rotate before sending a rotation update. */
     UPROPERTY(EditAnywhere, Category = "Smooth Sync|Configuration", meta = (ToolTip = "Minimum quaternion difference the actor must rotate before sending a rotation update over the network. A value of 0.0001f is recommended for smooth continuous rotations."))
     float RotationSyncTolerance = 0.0001f;
+
+    /** Minimum scale difference before sending a scale update over the network. */
+    UPROPERTY(EditAnywhere, Category = "Smooth Sync|Configuration", meta = (ToolTip = "Minimum scale difference the actor must undergo before sending a scale update over the network. Only used if bSyncScale is true."))
+    float ScaleSyncTolerance = 0.01f;
 
     /** Allowed prediction error distance before the client soft-corrects its position (Autonomous Proxy). */
     UPROPERTY(EditAnywhere, Category = "Smooth Sync|Configuration", meta = (ToolTip = "Allowed prediction error distance before the client soft-corrects its position to match the server. Increase this for fast vehicles to allow slight divergence during turns without stuttering."))

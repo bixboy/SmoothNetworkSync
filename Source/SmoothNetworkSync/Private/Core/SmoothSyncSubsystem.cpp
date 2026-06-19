@@ -1,3 +1,4 @@
+// Copyright (c) Bixboy, 2026. All Rights Reserved.
 #include "SmoothSyncSubsystem.h"
 #include "NetworkInterpolatorComponent.h"
 #include "SmoothSyncable.h"
@@ -6,6 +7,13 @@
 #include "Math/UnrealMathUtility.h"
 #include "DrawDebugHelpers.h"
 
+static TAutoConsoleVariable<int32> CVarSmoothSyncDebug(
+    TEXT("smoothsync.Debug"),
+    0,
+    TEXT("Enable global Smooth Sync debug visualization.\n")
+    TEXT("0: Off, 1: On"),
+    ECVF_Cheat
+);
 
 USmoothSyncSubsystem::USmoothSyncSubsystem()
 {
@@ -127,7 +135,7 @@ void USmoothSyncSubsystem::Tick(float DeltaTime)
             
             if (Comp->PosTimeSinceLastSync >= PosSyncInterval)
             {
-                bool bScaleChanged = Comp->bSyncScale && !NewScale.Equals(Comp->SyncPos.Scale, 0.01f);
+                bool bScaleChanged = Comp->bSyncScale && !NewScale.Equals(Comp->SyncPos.Scale, Comp->ScaleSyncTolerance);
                 
                 if (!NewPos.Equals(Comp->SyncPos.Position, Comp->PositionSyncTolerance) || !NewVel.Equals(Comp->SyncPos.Velocity, Comp->PositionSyncTolerance) || bScaleChanged)
                 {
@@ -140,6 +148,7 @@ void USmoothSyncSubsystem::Tick(float DeltaTime)
                     Comp->SyncPos.ServerTimestamp = World->GetTimeSeconds();
                     bShouldSendPos = true;
                 }
+
                 Comp->PosTimeSinceLastSync = FMath::Fmod(Comp->PosTimeSinceLastSync, PosSyncInterval);
             }
 
@@ -152,6 +161,7 @@ void USmoothSyncSubsystem::Tick(float DeltaTime)
                     Comp->SyncRot.ServerTimestamp = World->GetTimeSeconds();
                     bShouldSendRot = true;
                 }
+
                 Comp->RotTimeSinceLastSync = FMath::Fmod(Comp->RotTimeSinceLastSync, RotSyncInterval);
             }
 
@@ -186,7 +196,7 @@ void USmoothSyncSubsystem::Tick(float DeltaTime)
             continue;
         }
 
-        // --- 3. INTERPOLATION (Client Simulé) ---
+        // --- INTERPOLATION ---
 
         if (Comp->bDisableSmoothing)
             continue;
@@ -228,7 +238,7 @@ void USmoothSyncSubsystem::Tick(float DeltaTime)
         }
 
         // --- DEBUG DRAWER ---
-        if (Comp->bShowDebugPath)
+        if (Comp->bShowDebugPath || CVarSmoothSyncDebug.GetValueOnAnyThread() > 0)
         {
             const FVector CurrentLoc = NewTransform.GetLocation();
             
@@ -248,7 +258,7 @@ void USmoothSyncSubsystem::Tick(float DeltaTime)
             // State Colors & Text
             const FSmoothSyncState_Pos& LatestServerPos = Comp->GetPosState(0);
             FColor StatusColor = FColor::Cyan;
-            FString StatusText = FString::Printf(TEXT("Interpolating (Delay: %.2fs)"), Comp->InterpolationDelay);
+            FString StatusText = FString::Printf(TEXT("Interpolating (Delay: %.2fs) [Buffer: %d]"), Comp->InterpolationDelay, PosCount);
 
             if (Comp->bIsLagging)
             {
@@ -469,6 +479,7 @@ void USmoothSyncSubsystem::HandleAutonomousProxyPrediction(AActor* OwnerActor, U
             RootPrim->SetPhysicsLinearVelocity(LatestServerPos.Velocity);
             RootPrim->SetPhysicsAngularVelocityInDegrees(FVector::ZeroVector);
         }
+        
         Comp->OnHardSnapTriggered.Broadcast();
     }
     else if (ErrorSq > FMath::Square(Comp->PredictionErrorTolerance))
@@ -507,10 +518,10 @@ void USmoothSyncSubsystem::HandleAutonomousProxyPrediction(AActor* OwnerActor, U
         if (AngularDist > FMath::DegreesToRadians(Comp->HardSnapAngleDegrees))
         {
             OwnerActor->SetActorRotation(ServerRot, ETeleportType::TeleportPhysics);
+
             if (bIsSimulating)
-            {
                 RootPrim->SetPhysicsAngularVelocityInDegrees(FVector::ZeroVector);
-            }
+
         }
         else if (AngularDist > FMath::DegreesToRadians(Comp->SoftSnapAngleDegrees))
         {
@@ -520,7 +531,8 @@ void USmoothSyncSubsystem::HandleAutonomousProxyPrediction(AActor* OwnerActor, U
                 float Angle;
                 (ServerRot * LocalRot.Inverse()).ToAxisAndAngle(Axis, Angle);
                 
-                if (Angle > PI) Angle -= 2.0f * PI;
+                if (Angle > PI)
+                    Angle -= 2.0f * PI;
                 
                 FVector AngularAccel = Axis * Angle * Comp->AngularSpringStiffness; 
                 AngularAccel = AngularAccel.GetClampedToMaxSize(Comp->MaxAngularNudgeAccel);
@@ -533,6 +545,23 @@ void USmoothSyncSubsystem::HandleAutonomousProxyPrediction(AActor* OwnerActor, U
                 FQuat CorrectedRot = FQuat::Slerp(LocalRot, ServerRot, DeltaTime * Comp->RotationInterpSpeed);
                 OwnerActor->SetActorRotation(CorrectedRot, ETeleportType::None);
             }
+        }
+    }
+
+    // --- DEBUG DRAWER FOR AUTONOMOUS PROXY ---
+    if (Comp->bShowDebugPath || CVarSmoothSyncDebug.GetValueOnAnyThread() > 0)
+    {
+        UWorld* World = OwnerActor->GetWorld();
+        if (IsValid(World))
+        {
+            FColor StatusColor = (ErrorSq > FMath::Square(Comp->TeleportDistanceThreshold)) ? FColor::Red : 
+                                 (ErrorSq > FMath::Square(Comp->PredictionErrorTolerance)) ? FColor::Orange : FColor::Green;
+
+            FString StatusText = FString::Printf(TEXT("Auto Proxy Prediction (Error: %.1f)"), FMath::Sqrt(ErrorSq));
+
+            DrawDebugBox(World, ExtrapServerPos, FVector(12.f), StatusColor, false, -1.f, 0, 2.f);
+            DrawDebugLine(World, ExtrapServerPos, LocalPos, StatusColor, false, -1.f, 0, 0.5f);
+            DrawDebugString(World, LocalPos + FVector(0, 0, 100.f), StatusText, nullptr, StatusColor, 0.0f, true);
         }
     }
 }

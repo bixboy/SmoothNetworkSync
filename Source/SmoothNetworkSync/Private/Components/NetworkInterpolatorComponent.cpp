@@ -1,3 +1,4 @@
+// Copyright (c) Bixboy, 2026. All Rights Reserved.
 #include "NetworkInterpolatorComponent.h"
 #include "SmoothSyncSubsystem.h"
 #include "Engine/World.h"
@@ -120,7 +121,6 @@ void UNetworkInterpolatorComponent::Server_ReceiveClientState_Implementation(FVe
 
 void UNetworkInterpolatorComponent::OnRep_SyncPos()
 {
-    // --- Dynamic Velocity Calculation ---
     if (PosElementCount > 0)
     {
         const FSmoothSyncState_Pos& LastState = GetPosState(0);

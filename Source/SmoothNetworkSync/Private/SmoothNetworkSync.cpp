@@ -1,4 +1,5 @@
-﻿#include "SmoothNetworkSync.h"
+// Copyright (c) Bixboy, 2026. All Rights Reserved.
+#include "SmoothNetworkSync.h"
 
 #define LOCTEXT_NAMESPACE "FSmoothNetworkSyncModule"
 
