@@ -8,6 +8,18 @@ public class SmoothNetworkSync : ModuleRules
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 		
+		if (Target.Version.MajorVersion == 5 && Target.Version.MinorVersion == 4)
+		{
+			bEnableUndefinedIdentifierWarnings = false;
+			PCHUsage = ModuleRules.PCHUsageMode.NoSharedPCHs;
+			PrivatePCHHeaderFile = "Public/SmoothNetworkSync.h";
+		}
+		else if (Target.Version.MajorVersion == 5 && Target.Version.MinorVersion < 5)
+		{
+			bEnableUndefinedIdentifierWarnings = false;
+		}
+
+		
 		PublicIncludePaths.AddRange(
 			new string[] {
 				System.IO.Path.Combine(ModuleDirectory, "Public", "Core"),

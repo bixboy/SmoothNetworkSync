@@ -2,6 +2,7 @@
 #include "SmoothSyncSubsystem.h"
 #include "NetworkInterpolatorComponent.h"
 #include "SmoothSyncable.h"
+#include "Components/PrimitiveComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/GameStateBase.h"
 #include "Math/UnrealMathUtility.h"
@@ -187,8 +188,6 @@ void USmoothSyncSubsystem::Tick(float DeltaTime)
         {
             ServerTime = GS->GetServerWorldTimeSeconds();
         }
-
-        // --- PRÉDICTION CLIENT (Soft Error Correction) ---
 
         if (Role == ROLE_AutonomousProxy)
         {
