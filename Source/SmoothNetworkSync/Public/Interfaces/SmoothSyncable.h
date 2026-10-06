@@ -6,7 +6,9 @@
 
 
 /**
- * @brief Blueprintable Interface for any Actor or Component that should receive smooth network interpolation.
+ * Optional interface for actors owning a Smooth Sync component.
+ * Implement it to apply the network transform yourself (e.g. move only a visual mesh, drive physics, feed animation).
+ * Without it, the component calls SetActorTransform (and sets the physics velocity on simulating roots).
  */
 UINTERFACE(MinimalAPI, Blueprintable)
 class USmoothSyncable : public UInterface
@@ -15,9 +17,6 @@ class USmoothSyncable : public UInterface
 };
 
 
-/**
- * @brief Interface class containing the execution methods for Smooth Sync.
- */
 class SMOOTHNETWORKSYNC_API ISmoothSyncable
 {
     GENERATED_BODY()
@@ -25,9 +24,11 @@ class SMOOTHNETWORKSYNC_API ISmoothSyncable
 public:
 
     /**
-     * @brief Called by the SmoothSyncSubsystem every frame to apply the newly calculated interpolated transform.
-     * @param InNewTransform The newly computed FTransform.
-     * @param InNewVelocity The newly computed interpolated or extrapolated FVector velocity.
+     * Called on the actor every time Smooth Sync wants to move it:
+     * every frame on simulated proxies, and on the server when a client-authoritative owner sends its state.
+     * Bind the component's OnHardSnapTriggered event to know when the move is a teleport.
+     * @param InNewTransform The smoothed world transform (scale is the actor's current scale unless bSyncScale is on).
+     * @param InNewVelocity The interpolated or extrapolated linear velocity.
      */
     UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Smooth Sync")
     void ApplySmoothedTransform(const FTransform& InNewTransform, const FVector& InNewVelocity);

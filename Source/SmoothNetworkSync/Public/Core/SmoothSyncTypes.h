@@ -4,124 +4,149 @@
 #include "Engine/NetSerialization.h"
 #include "SmoothSyncTypes.generated.h"
 
+class UPrimitiveComponent;
 
 
+/** Ready-made settings for common use cases. Selecting one overwrites the related settings of the component. */
+UENUM(BlueprintType)
+enum class ESmoothSyncPreset : uint8
+{
+    Custom          UMETA(ToolTip = "Keep the values you set manually."),
+    Prop            UMETA(ToolTip = "Objects moved by gameplay code on the server (doors, platforms, pickups, AI)."),
+    PhysicsObject   UMETA(DisplayName = "Physics Object", ToolTip = "Objects simulated by physics on the server (crates, debris, balls)."),
+    Vehicle         UMETA(ToolTip = "Fast player-driven pawns. Usually combined with client authority."),
+};
+
+/** How precisely positions are sent over the network. Lower precision means less bandwidth. */
+UENUM(BlueprintType)
+enum class ESmoothSyncPositionPrecision : uint8
+{
+    Centimeter      UMETA(DisplayName = "1 cm", ToolTip = "1 unit precision. Cheapest, fine for most props."),
+    Millimeter      UMETA(DisplayName = "1 mm", ToolTip = "0.1 unit precision. Good default."),
+    TenthMillimeter UMETA(DisplayName = "0.1 mm", ToolTip = "0.01 unit precision. Highest bandwidth."),
+};
+
+
+namespace SmoothSync
+{
+    /** Timestamps travel as milliseconds modulo 2^16 (a ~65s window) and are rebuilt against the receiver's clock. */
+    inline uint16 CompressTimestamp(double InSeconds)
+    {
+        return static_cast<uint16>(static_cast<int64>(FMath::RoundToDouble(InSeconds * 1000.0)) & 0xFFFF);
+    }
+
+    /** Rebuilds the full timestamp closest to InReferenceSeconds (the receiver's estimate of the server time). */
+    inline double DecompressTimestamp(uint16 InWire, double InReferenceSeconds)
+    {
+        const int64 ReferenceMs = static_cast<int64>(FMath::RoundToDouble(InReferenceSeconds * 1000.0));
+        int64 Ms = (ReferenceMs & ~static_cast<int64>(0xFFFF)) | InWire;
+
+        if (Ms - ReferenceMs > 0x8000)
+            Ms -= 0x10000;
+        else if (ReferenceMs - Ms > 0x8000)
+            Ms += 0x10000;
+
+        return Ms / 1000.0;
+    }
+
+    /** Teleport ids wrap at 8 (3 bits on the wire). */
+    constexpr uint8 TeleportIdMask = 0x7;
+}
+
+
+/** A position snapshot sent by the authority. */
 USTRUCT(BlueprintType)
-struct FSmoothSyncState_Pos
+struct SMOOTHNETWORKSYNC_API FSmoothSyncState_Pos
 {
     GENERATED_BODY()
 
-public:
-
-    /** The actual world position */
-    UPROPERTY(BlueprintReadWrite, Category = "Smooth Sync", meta = (ToolTip = "The authoritative world position received from the server."))
+    UPROPERTY(BlueprintReadOnly, Category = "Smooth Sync", meta = (ToolTip = "The authoritative position (world space, or relative to the attach parent when bRelativeToParent)."))
     FVector Position = FVector::ZeroVector;
 
-    /** The linear velocity */
-    UPROPERTY(BlueprintReadWrite, Category = "Smooth Sync", meta = (ToolTip = "The current velocity at the time of the update. Used for Hermite Spline interpolation and Dead Reckoning Extrapolation."))
+    UPROPERTY(BlueprintReadOnly, Category = "Smooth Sync", meta = (ToolTip = "The velocity at capture time, in the same space as Position. Zero when the object came to rest."))
     FVector Velocity = FVector::ZeroVector;
 
-    /** The 3D scale (optional) */
-    UPROPERTY(BlueprintReadWrite, Category = "Smooth Sync", meta = (ToolTip = "The world scale. Synchronized only if bSyncScale is true."))
+    UPROPERTY(BlueprintReadOnly, Category = "Smooth Sync", meta = (ToolTip = "The world scale. Only sent when bSyncScale is enabled."))
     FVector Scale = FVector::OneVector;
 
-    /** Server timestamp */
-    UPROPERTY(BlueprintReadWrite, Category = "Smooth Sync", meta = (ToolTip = "The exact server time at which this state was captured."))
-    float ServerTimestamp = 0.0f;
+    UPROPERTY(BlueprintReadOnly, Category = "Smooth Sync", meta = (ToolTip = "Server time (seconds) at which this state was captured."))
+    double ServerTimestamp = 0.0;
 
+    /** Incremented on every teleport. A change tells receivers to snap instead of interpolating. */
+    UPROPERTY()
+    uint8 TeleportId = 0;
 
-    bool NetSerialize(FArchive& Ar, class UPackageMap* Map, bool& bOutSuccess)
+    /** Position and velocity are relative to the owner's attach parent, or to MovementBase when set. */
+    UPROPERTY()
+    bool bRelativeToParent = false;
+
+    /** The moving object a Character stands on (platform, elevator), when the state is relative to it. */
+    UPROPERTY()
+    TObjectPtr<UPrimitiveComponent> MovementBase = nullptr;
+
+    // --- Wire settings, filled by the sender (not compared for replication) ---
+
+    bool bHasScale = false;
+    ESmoothSyncPositionPrecision Precision = ESmoothSyncPositionPrecision::Millimeter;
+
+    /** Compressed timestamp. Only valid when bDecodedFromWire (legacy replication); Iris sends ServerTimestamp as is. */
+    uint16 WireTimestamp = 0;
+    bool bDecodedFromWire = false;
+
+    /** The capture time on the server clock, rebuilt from the compressed wire value when needed. */
+    double ResolveTimestamp(double InReceiverServerTime) const
     {
-        bOutSuccess = true;
-        bool bLocalSuccess = true;
-
-        FVector_NetQuantize100 NetPos(Position);
-        NetPos.NetSerialize(Ar, Map, bLocalSuccess);
-        bOutSuccess &= bLocalSuccess;
-
-        if (Ar.IsLoading())
-            Position = NetPos;
-
-
-
-        FVector_NetQuantize100 NetScale(Scale);
-        NetScale.NetSerialize(Ar, Map, bLocalSuccess);
-        bOutSuccess &= bLocalSuccess;
-
-        if (Ar.IsLoading())
-            Scale = NetScale;
-
-        Ar << ServerTimestamp;
-        return bOutSuccess;
+        return bDecodedFromWire ? SmoothSync::DecompressTimestamp(WireTimestamp, InReceiverServerTime) : ServerTimestamp;
     }
+
+    bool NetSerialize(FArchive& Ar, UPackageMap* Map, bool& bOutSuccess);
 };
 
 template<>
 struct TStructOpsTypeTraits<FSmoothSyncState_Pos> : public TStructOpsTypeTraitsBase2<FSmoothSyncState_Pos>
 {
-    enum { WithNetSerializer = true, };
+    enum { WithNetSerializer = true };
 };
 
 
+/** A rotation snapshot sent by the authority. */
 USTRUCT(BlueprintType)
-struct FSmoothSyncState_Rot
+struct SMOOTHNETWORKSYNC_API FSmoothSyncState_Rot
 {
     GENERATED_BODY()
 
-public:
-
-    /** The actual world rotation */
-    UPROPERTY(BlueprintReadWrite, Category = "Smooth Sync", meta = (ToolTip = "The authoritative world rotation received from the server."))
+    UPROPERTY(BlueprintReadOnly, Category = "Smooth Sync", meta = (ToolTip = "The authoritative rotation (world space, or relative to the attach parent when bRelativeToParent)."))
     FQuat Rotation = FQuat::Identity;
 
-    /** The server timestamp at which this state was recorded */
-    UPROPERTY(BlueprintReadWrite, Category = "Smooth Sync", meta = (ToolTip = "The exact server time at which this state was captured."))
-    float ServerTimestamp = 0.0f;
+    UPROPERTY(BlueprintReadOnly, Category = "Smooth Sync", meta = (ToolTip = "Angular velocity (radians/s, axis * speed) in the same space as Rotation. Only sent when bSyncAngularVelocity is enabled."))
+    FVector AngularVelocity = FVector::ZeroVector;
 
+    UPROPERTY(BlueprintReadOnly, Category = "Smooth Sync", meta = (ToolTip = "Server time (seconds) at which this state was captured."))
+    double ServerTimestamp = 0.0;
 
-    bool NetSerialize(FArchive& Ar, class UPackageMap* Map, bool& bOutSuccess)
+    /** Incremented on every teleport. A change tells receivers to snap instead of interpolating. */
+    UPROPERTY()
+    uint8 TeleportId = 0;
+
+    /** Rotation is relative to the owner's attach parent. */
+    UPROPERTY()
+    bool bRelativeToParent = false;
+
+    /** Compressed timestamp. Only valid when bDecodedFromWire (legacy replication); Iris sends ServerTimestamp as is. */
+    uint16 WireTimestamp = 0;
+    bool bDecodedFromWire = false;
+
+    double ResolveTimestamp(double InReceiverServerTime) const
     {
-        bOutSuccess = true;
-        if (Ar.IsSaving())
-        {
-            Rotation.Normalize();
-            if (Rotation.W < 0.0f)
-            {
-                Rotation.X = -Rotation.X;
-                Rotation.Y = -Rotation.Y;
-                Rotation.Z = -Rotation.Z;
-                Rotation.W = -Rotation.W;
-            }
-
-            uint16 X16 = (uint16)((Rotation.X + 1.0f) * 32767.5f);
-            uint16 Y16 = (uint16)((Rotation.Y + 1.0f) * 32767.5f);
-            uint16 Z16 = (uint16)((Rotation.Z + 1.0f) * 32767.5f);
-
-            Ar << X16; Ar << Y16; Ar << Z16;
-        }
-        else
-        {
-            uint16 X16 = 0, Y16 = 0, Z16 = 0;
-            Ar << X16; Ar << Y16; Ar << Z16;
-
-            Rotation.X = (X16 / 32767.5f) - 1.0f;
-            Rotation.Y = (Y16 / 32767.5f) - 1.0f;
-            Rotation.Z = (Z16 / 32767.5f) - 1.0f;
-
-            float Wsq = 1.0f - (Rotation.X * Rotation.X + Rotation.Y * Rotation.Y + Rotation.Z * Rotation.Z);
-            Rotation.W = Wsq > 0.0f ? FMath::Sqrt(Wsq) : 0.0f;
-        }
-        
-        Ar << ServerTimestamp;
-        return bOutSuccess;
+        return bDecodedFromWire ? SmoothSync::DecompressTimestamp(WireTimestamp, InReceiverServerTime) : ServerTimestamp;
     }
+
+    /** Sent with "smallest three" compression: 2 bits of index + 3 x 16 bits. */
+    bool NetSerialize(FArchive& Ar, UPackageMap* Map, bool& bOutSuccess);
 };
 
 template<>
 struct TStructOpsTypeTraits<FSmoothSyncState_Rot> : public TStructOpsTypeTraitsBase2<FSmoothSyncState_Rot>
 {
-    enum
-    {
-        WithNetSerializer = true,
-    };
+    enum { WithNetSerializer = true };
 };

@@ -3,7 +3,7 @@
 	"Version": 1,
 	"VersionName": "1.0",
 	"FriendlyName": "SmoothNetworkSync",
-	"Description": "",
+	"Description": "Smooth, bandwidth-friendly transform replication for any actor: adaptive interpolation, extrapolation, owner correction and optional client authority, in one component.",
 	"Category": "Network",
 	"CreatedBy": "Bixboy",
 	"CreatedByURL": "https://bixboy.github.io/Portfolio/index.html",
@@ -24,6 +24,28 @@
 				"Linux",
 				"Android",
 				"IOS"
+			]
+		},
+		{
+			"Name": "SmoothNetworkSyncExamples",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Win64",
+				"Mac",
+				"Linux",
+				"Android",
+				"IOS"
+			]
+		},
+		{
+			"Name": "SmoothNetworkSyncTests",
+			"Type": "Editor",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Win64",
+				"Mac",
+				"Linux"
 			]
 		}
 	],

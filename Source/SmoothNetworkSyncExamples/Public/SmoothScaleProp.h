@@ -1,0 +1,42 @@
+// Copyright (c) Bixboy, 2026. All Rights Reserved.
+#pragma once
+#include "CoreMinimal.h"
+#include "GameFramework/Actor.h"
+#include "Interfaces/SmoothSyncable.h"
+#include "SmoothScaleProp.generated.h"
+
+class USmoothSyncComponent;
+class UStaticMeshComponent;
+
+
+UCLASS()
+class SMOOTHNETWORKSYNCEXAMPLES_API ASmoothScaleProp : public AActor, public ISmoothSyncable
+{
+    GENERATED_BODY()
+
+public:
+
+    ASmoothScaleProp();
+
+    virtual void ApplySmoothedTransform_Implementation(const FTransform& InNewTransform, const FVector& InNewVelocity) override;
+
+    virtual void Tick(float DeltaTime) override;
+
+protected:
+
+    virtual void BeginPlay() override;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+    TObjectPtr<UStaticMeshComponent> MeshComponent = nullptr;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+    TObjectPtr<USmoothSyncComponent> NetworkInterpolator = nullptr;
+
+private:
+    
+    /** The base scale to pulsate from. */
+    FVector BaseScale;
+
+    /** Time tracker for the sine wave. */
+    float RunningTime = 0.0f;
+};

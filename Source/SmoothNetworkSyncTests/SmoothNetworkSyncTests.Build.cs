@@ -2,20 +2,20 @@
 
 using UnrealBuildTool;
 
-public class SmoothNetworkSync : ModuleRules
+/** Editor-only network regression tests (multiplayer PIE on the example map). Run: Automation RunTests SmoothSync */
+public class SmoothNetworkSyncTests : ModuleRules
 {
-	public SmoothNetworkSync(ReadOnlyTargetRules Target) : base(Target)
+	public SmoothNetworkSyncTests(ReadOnlyTargetRules Target) : base(Target)
 	{
 		PCHUsage = ModuleRules.PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		// UE 5.4 and older trip undefined-identifier warnings in engine headers (see SmoothNetworkSync.h).
-		// The setting is obsolete from 5.5, where this branch never runs.
+		// Same engine header workaround as the runtime module (see SmoothNetworkSync.h).
 #pragma warning disable CS0618
 		if (Target.Version.MajorVersion == 5 && Target.Version.MinorVersion == 4)
 		{
 			bEnableUndefinedIdentifierWarnings = false;
 			PCHUsage = ModuleRules.PCHUsageMode.NoSharedPCHs;
-			PrivatePCHHeaderFile = "Public/SmoothNetworkSync.h";
+			PrivatePCHHeaderFile = "Private/SmoothNetworkSyncTestsPCH.h";
 		}
 		else if (Target.Version.MajorVersion == 5 && Target.Version.MinorVersion < 5)
 		{
@@ -23,20 +23,15 @@ public class SmoothNetworkSync : ModuleRules
 		}
 #pragma warning restore CS0618
 
-		// Public headers expose UActorComponent, UWorldSubsystem and net quantization types.
-		PublicDependencyModuleNames.AddRange(
+		PrivateDependencyModuleNames.AddRange(
 			new string[]
 			{
 				"Core",
 				"CoreUObject",
 				"Engine",
-			}
-			);
-
-		PrivateDependencyModuleNames.AddRange(
-			new string[]
-			{
-				"NetCore",
+				"UnrealEd",
+				"SmoothNetworkSync",
+				"SmoothNetworkSyncExamples",
 			}
 			);
 	}
