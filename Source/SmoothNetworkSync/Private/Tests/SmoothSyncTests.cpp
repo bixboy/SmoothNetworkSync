@@ -9,8 +9,6 @@
 
 namespace
 {
-    constexpr EAutomationTestFlags SmoothSyncTestFlags = EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter;
-
     template<typename StateType>
     StateType RoundTrip(StateType& InState)
     {
@@ -26,7 +24,7 @@ namespace
 }
 
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSmoothSyncTimestampTest, "SmoothSync.Timestamp.CompressRoundTrip", SmoothSyncTestFlags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSmoothSyncTimestampTest, "SmoothSync.Timestamp.CompressRoundTrip", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FSmoothSyncTimestampTest::RunTest(const FString& Parameters)
 {
     const double Samples[] = { 0.0, 1.234, 65.535, 65.536, 3600.5, 86400.017 };
@@ -43,7 +41,7 @@ bool FSmoothSyncTimestampTest::RunTest(const FString& Parameters)
 }
 
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSmoothSyncPositionSerializeTest, "SmoothSync.Serialize.Position", SmoothSyncTestFlags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSmoothSyncPositionSerializeTest, "SmoothSync.Serialize.Position", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FSmoothSyncPositionSerializeTest::RunTest(const FString& Parameters)
 {
     FSmoothSyncState_Pos State;
@@ -76,7 +74,7 @@ bool FSmoothSyncPositionSerializeTest::RunTest(const FString& Parameters)
 }
 
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSmoothSyncRotationSerializeTest, "SmoothSync.Serialize.Rotation", SmoothSyncTestFlags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSmoothSyncRotationSerializeTest, "SmoothSync.Serialize.Rotation", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FSmoothSyncRotationSerializeTest::RunTest(const FString& Parameters)
 {
     // Includes ~180 degree rotations, where dropping W (the old format) lost precision.
@@ -105,7 +103,7 @@ bool FSmoothSyncRotationSerializeTest::RunTest(const FString& Parameters)
 }
 
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSmoothSyncResolveTimestampTest, "SmoothSync.Timestamp.ResolveIrisAndLegacy", SmoothSyncTestFlags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSmoothSyncResolveTimestampTest, "SmoothSync.Timestamp.ResolveIrisAndLegacy", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FSmoothSyncResolveTimestampTest::RunTest(const FString& Parameters)
 {
     // Iris replicates the struct properties as is: ServerTimestamp is used directly.
@@ -122,7 +120,7 @@ bool FSmoothSyncResolveTimestampTest::RunTest(const FString& Parameters)
 }
 
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSmoothSyncBufferTest, "SmoothSync.Buffer.RingAndSegment", SmoothSyncTestFlags)
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSmoothSyncBufferTest, "SmoothSync.Buffer.RingAndSegment", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FSmoothSyncBufferTest::RunTest(const FString& Parameters)
 {
     TSmoothSyncStateBuffer<FSmoothSyncState_Rot, 4> Buffer;

@@ -327,6 +327,21 @@ public:
     UFUNCTION(BlueprintPure, Category = "Smooth Sync")
     float GetCurrentInterpolationDelay() const { return CurrentInterpolationDelay; }
 
+    /**
+     * Longest time remote copies are shown in the past (seconds): the largest interpolation delay plus one snapshot interval.
+     * Servers validating hits on this actor can rewind or widen their tolerance by this much, on top of the shooter's ping.
+     */
+    UFUNCTION(BlueprintPure, Category = "Smooth Sync")
+    float GetMaxDisplayDelay() const;
+
+    /**
+     * True on a remote copy (simulated proxy) that Smooth Sync currently places from its snapshots. A Character should then
+     * ignore the transform carried by its own replicated movement (see README, Characters): applied when received, it puts
+     * the copy where the server is now, ahead of where it is drawn, until Smooth Sync moves it back at the end of the frame.
+     */
+    UFUNCTION(BlueprintPure, Category = "Smooth Sync")
+    bool IsDrivingRemoteCopy() const;
+
     /** Owning client only: distance (units) between the local pawn and the server's position. */
     UFUNCTION(BlueprintPure, Category = "Smooth Sync")
     float GetPredictionError() const { return PredictionError; }
@@ -460,6 +475,15 @@ private:
     /** Converts a transform in sync space to world space. */
     FTransform SyncSpaceToWorld(const FTransform& InTransform, bool bInRelative) const;
 
+    /**
+     * World units per sync space unit (the sync parent's largest scale, 1 in world space). Relative distances must be
+     * scaled by it before being compared to world thresholds: on a floor scaled x8 they are 8 times too short.
+     */
+    double GetSyncSpaceScale(bool bInRelative) const;
+
+    /** A position snapshot in world space, resolved in its own space (its movement base, or the owner's attach parent). */
+    FVector StateToWorldPosition(const FSmoothSyncState_Pos& InState) const;
+
     void ApplyTransformToOwner(const FTransform& InSyncSpaceTransform, bool bInRelative, const FVector& InVelocity, const FVector& InAngularVelocity, bool bInTeleport);
 
     float GetLODRate(float InBaseRate, const FSmoothSyncFrameContext& InContext) const;
@@ -582,7 +606,7 @@ private:
     /** Receiver: capture time of the first snapshot in the current space. Older rotations belong to the previous one. */
     double SpaceStartTimestamp = -1.0;
 
-    /** Server: last teleport id received from a client-authoritative owner, and when its last state arrived. */
+    /** Server: last teleport id received from a client-authoritative owner, when its last state arrived and where (world space). */
     uint8 LastClientTeleportId = 0;
     double LastClientStateTime = -1.0;
     FVector LastClientPosition = FVector::ZeroVector;

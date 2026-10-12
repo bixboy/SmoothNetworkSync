@@ -6,6 +6,7 @@
 #include "SmoothSyncLog.h"
 #include "SmoothSyncStats.h"
 #include "Components/PrimitiveComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
@@ -26,6 +27,33 @@
 
 namespace
 {
+    /**
+     * Ends the CMC's own smoothing for good once Smooth Sync drives the character. While bNetworkSmoothingComplete is false,
+     * the CMC moves the capsule without the mesh (FScopedPreventAttachedComponentMove) and relies on SmoothClientPosition
+     * to bring the mesh back; with smoothing disabled that never happens, so the mesh drifts a bit further every frame.
+     */
+    void ReleaseCharacterMovementSmoothing(UCharacterMovementComponent& InMovement, bool bInResetMesh)
+    {
+        InMovement.bNetworkSmoothingComplete = true;
+        if (!bInResetMesh)
+            return;
+
+        if (InMovement.HasPredictionData_Client())
+        {
+            if (FNetworkPredictionData_Client_Character* ClientData = InMovement.GetPredictionData_Client_Character())
+            {
+                ClientData->MeshTranslationOffset = FVector::ZeroVector;
+                ClientData->OriginalMeshTranslationOffset = FVector::ZeroVector;
+                ClientData->MeshRotationOffset = FQuat::Identity;
+                ClientData->MeshRotationTarget = FQuat::Identity;
+            }
+        }
+
+        const ACharacter* Character = InMovement.GetCharacterOwner();
+        if (USkeletalMeshComponent* Mesh = Character ? Character->GetMesh() : nullptr)
+            Mesh->SetRelativeLocationAndRotation(Character->GetBaseTranslationOffset(), Character->GetBaseRotationOffset());
+    }
+
     /** Logs a setup problem once per actor class, so a level full of the same prop does not flood the log. */
     void WarnOncePerClass(const AActor* InOwner, const TCHAR* InIssueKey, const FString& InMessage)
     {
@@ -227,6 +255,18 @@ void USmoothSyncComponent::ValidateOwnerSetup()
 
 
 // ===== Public API =====
+
+float USmoothSyncComponent::GetMaxDisplayDelay() const
+{
+    const float LongestDelay = bAdaptiveInterpolationDelay ? FMath::Max(InterpolationDelay, MaxInterpolationDelay) : InterpolationDelay;
+    return LongestDelay + 1.0f / FMath::Max(PositionUpdateRate, 1.0f);
+}
+
+bool USmoothSyncComponent::IsDrivingRemoteCopy() const
+{
+    const AActor* Owner = GetOwner();
+    return Owner && Owner->GetLocalRole() == ROLE_SimulatedProxy && !bDisableSmoothing && !PosBuffer.IsEmpty();
+}
 
 void USmoothSyncComponent::NotifyTeleported()
 {
@@ -514,9 +554,11 @@ bool USmoothSyncComponent::GetRemoteMoveTime(const FSmoothSyncFrameContext& InCo
         return false;
 
     // The least delayed move gives the true clock offset: take lower offsets at once, follow higher ones slowly (drift).
-    // Clients reset their move clock every few minutes: a backward jump restarts the estimate.
+    // The server only accepts newer moves, except when the client resets its move clock (every few minutes, and right
+    // after spawning): any backward step restarts the estimate. A small one left unnoticed keeps the estimate too low,
+    // stamps every snapshot as older than it is and makes remote copies extrapolate for seconds.
     const double RawOffset = InContext.ServerTime - ClientTimeStamp;
-    if (!bHasClientMoveTimeOffset || ClientTimeStamp < LastClientMoveTimeStamp - 1.0)
+    if (!bHasClientMoveTimeOffset || ClientTimeStamp < LastClientMoveTimeStamp)
     {
         ClientMoveTimeOffset = RawOffset;
         bHasClientMoveTimeOffset = true;
@@ -565,9 +607,13 @@ void USmoothSyncComponent::TickCharacter(const FSmoothSyncFrameContext& InContex
         {
             TickInterpolation(InContext);
 
-            // Animation blueprints read the CMC velocity: give them the smoothed one.
+            // Animation blueprints read the CMC velocity: give them the smoothed one. Every net update marks the CMC's
+            // smoothing as pending again: keep it complete so the mesh follows the capsule (see ReleaseCharacterMovementSmoothing).
             if (UCharacterMovementComponent* Movement = CharacterMovement.Get())
+            {
                 Movement->Velocity = LastAppliedVelocity;
+                ReleaseCharacterMovementSmoothing(*Movement, false);
+            }
         }
         break;
 
@@ -732,6 +778,9 @@ void USmoothSyncComponent::SetCharacterMovementSmoothing(bool bInUseCharacterMov
         SavedNetworkSmoothingMode = static_cast<uint8>(Movement->NetworkSmoothingMode);
         Movement->NetworkSmoothingMode = ENetworkSmoothingMode::Disabled;
         bCharacterSmoothingOverridden = true;
+
+        // A correction received before the takeover may have left the CMC mid-smoothing, with the mesh offset: drop it.
+        ReleaseCharacterMovementSmoothing(*Movement, true);
     }
 }
 
@@ -885,6 +934,31 @@ FTransform USmoothSyncComponent::SyncSpaceToWorld(const FTransform& InTransform,
     FName Socket;
     const USceneComponent* Parent = bInRelative ? GetSyncParent(Socket) : nullptr;
     return Parent ? InTransform * Parent->GetSocketTransform(Socket) : InTransform;
+}
+
+double USmoothSyncComponent::GetSyncSpaceScale(bool bInRelative) const
+{
+    FName Socket;
+    const USceneComponent* Parent = bInRelative ? GetSyncParent(Socket) : nullptr;
+    return Parent ? FMath::Max(Parent->GetSocketTransform(Socket).GetMaximumAxisScale(), UE_KINDA_SMALL_NUMBER) : 1.0;
+}
+
+FVector USmoothSyncComponent::StateToWorldPosition(const FSmoothSyncState_Pos& InState) const
+{
+    if (!InState.bRelativeToParent)
+        return InState.Position;
+
+    // Relative to its movement base when it carries one, otherwise to the owner's attach parent.
+    const USceneComponent* Parent = InState.MovementBase.Get();
+    FName Socket = NAME_None;
+    if (!Parent)
+    {
+        const USceneComponent* Root = GetOwner() ? GetOwner()->GetRootComponent() : nullptr;
+        Parent = Root ? Root->GetAttachParent() : nullptr;
+        Socket = Root ? Root->GetAttachSocketName() : NAME_None;
+    }
+
+    return Parent ? Parent->GetSocketTransform(Socket).TransformPosition(InState.Position) : InState.Position;
 }
 
 void USmoothSyncComponent::RestartInNewSpace(const FSmoothSyncState_Pos& InState)
@@ -1186,13 +1260,15 @@ void USmoothSyncComponent::Server_ReceiveClientState_Implementation(const FSmoot
     const double Now = GetWorld()->GetTimeSeconds();
     const bool bTeleport = ClientTeleportId != LastClientTeleportId;
 
-    // Compare with the previous state received, not the displayed (delayed) one.
+    // Compare with the previous state received, not the displayed (delayed) one. In world space: a relative state's
+    // distances are in its parent's (possibly scaled) space, and a forced correction records a world position.
+    const FVector ClientWorldPosition = StateToWorldPosition(InPos);
     if (!bTeleport && MaxClientMoveSpeed > 0.0f && LastClientStateTime >= 0.0)
     {
         const double Elapsed = FMath::Clamp(Now - LastClientStateTime, 1.0 / 60.0, 1.0);
         const double AllowedDistance = MaxClientMoveSpeed * Elapsed + PredictionErrorTolerance;
 
-        if (FVector::DistSquared(InPos.Position, LastClientPosition) > FMath::Square(AllowedDistance))
+        if (FVector::DistSquared(ClientWorldPosition, LastClientPosition) > FMath::Square(AllowedDistance))
         {
             UE_LOG(LogSmoothSync, Warning, TEXT("%s: rejected client state moving faster than MaxClientMoveSpeed (%.0f). Correcting the client."),
                 *Owner->GetName(), MaxClientMoveSpeed);
@@ -1204,7 +1280,7 @@ void USmoothSyncComponent::Server_ReceiveClientState_Implementation(const FSmoot
     }
 
     LastClientStateTime = Now;
-    LastClientPosition = InPos.Position;
+    LastClientPosition = ClientWorldPosition;
 
     if (bTeleport)
     {
@@ -1356,8 +1432,9 @@ bool USmoothSyncComponent::ReceivePositionState(const FSmoothSyncState_Pos& InSt
 
     if (bMeasureError)
     {
+        // The offset is in sync space: compared in world units, like a teleport.
         PositionErrorOffset += Before - SamplePosition(LastTargetTime, LastMaxExtrapolation).Position;
-        if (PositionErrorOffset.SizeSquared() > FMath::Square(TeleportDistanceThreshold))
+        if (PositionErrorOffset.SizeSquared() * FMath::Square(GetSyncSpaceScale(State.bRelativeToParent)) > FMath::Square(TeleportDistanceThreshold))
             PositionErrorOffset = FVector::ZeroVector;
     }
     else if (bRestarted)
@@ -1630,9 +1707,11 @@ USmoothSyncComponent::FPositionSample USmoothSyncComponent::SamplePosition(doubl
     }
 
     // Snap only if the jump is far beyond what the velocities explain (fast vehicles at low rates are fine).
-    const double ExpectedTravel = FMath::Max(S0->Velocity.Size(), S1->Velocity.Size()) * SegmentDuration;
+    // Compared in world units: relative snapshots are in their parent's (possibly scaled) space.
+    const double SpaceScale = GetSyncSpaceScale(S1->bRelativeToParent);
+    const double ExpectedTravel = FMath::Max(S0->Velocity.Size(), S1->Velocity.Size()) * SegmentDuration * SpaceScale;
     const double SnapDistance = TeleportDistanceThreshold + 1.5 * ExpectedTravel;
-    if (FVector::DistSquared(S0->Position, S1->Position) > FMath::Square(SnapDistance))
+    if (FVector::DistSquared(S0->Position, S1->Position) * FMath::Square(SpaceScale) > FMath::Square(SnapDistance))
     {
         Sample.Position = S1->Position;
         Sample.Velocity = S1->Velocity;
@@ -1824,9 +1903,11 @@ void USmoothSyncComponent::ApplyTransformToOwner(const FTransform& InSyncSpaceTr
     if (bInRelative && !Parent)
         return;
 
-    const FQuat ParentRotation = bInRelative ? Parent->GetSocketQuaternion(Socket) : FQuat::Identity;
-    const FVector WorldVelocity = ParentRotation.RotateVector(InVelocity);
-    const FVector WorldAngularVelocity = ParentRotation.RotateVector(InAngularVelocity);
+    // Relative velocities live in the parent's space like the positions (see SyncSpaceToWorld): its scale included, or
+    // a character on a scaled floor (template floors are often x8) gets a velocity that much too small.
+    const FTransform ParentTransform = bInRelative ? Parent->GetSocketTransform(Socket) : FTransform::Identity;
+    const FVector WorldVelocity = ParentTransform.TransformVector(InVelocity);
+    const FVector WorldAngularVelocity = ParentTransform.GetRotation().RotateVector(InAngularVelocity);
     LastAppliedVelocity = WorldVelocity;
 
     if (bOwnerImplementsSyncable)

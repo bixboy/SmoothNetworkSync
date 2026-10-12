@@ -76,6 +76,22 @@ Add Smooth Sync to your Character like any other actor. It works **with** the Ch
 
 **Replicate Movement must stay on** for Characters: the CMC only sends the owning client's moves to the server while it is on (with it off, the character moves on its owner's screen but never on the server). The component turns it back on if needed.
 
+**Remote copies and gameplay code**: the replicated movement still places a remote copy where the server is *now* when an update arrives, at the start of the frame. Smooth Sync moves it back to its interpolated (slightly past) position at the end of the frame, so everything ticking in between (traces, overlaps, hit checks) sees the copy up to tens of centimetres away from where it is drawn. To keep gameplay and visuals in sync, have your Character put the copy back right after the engine's update while Smooth Sync drives it:
+
+```cpp
+void AMyCharacter::PostNetReceiveLocationAndRotation()
+{
+    const bool bKeep = SmoothSync && SmoothSync->IsDrivingRemoteCopy();
+    const FTransform Displayed = GetActorTransform();
+    Super::PostNetReceiveLocationAndRotation();
+    if (bKeep)
+        SetActorTransform(Displayed, false, nullptr, ETeleportType::TeleportPhysics);
+}
+// Same for OnRep_ReplicatedBasedMovement (characters standing on a movable base).
+```
+
+**Hit validation**: remote copies are shown up to `GetMaxDisplayDelay()` seconds in the past (interpolation delay and one snapshot interval), on top of the network delay. A server checking hits against the current position should widen its tolerance (or rewind) by the shooter's ping plus this delay.
+
 ### Server-authoritative or client-authoritative?
 
 | Mode | Owner's experience | Cheating | When |
@@ -238,6 +254,8 @@ It is called every frame on remote copies, and on the server for client-authorit
 | `ResetInterpolation()` | Clients | Drops received snapshots; the next one is applied directly. |
 | `IsLagging()` | Clients | Snapshots stopped arriving and extrapolation is capped. |
 | `GetCurrentInterpolationDelay()` | Clients | Current display delay in seconds. |
+| `GetMaxDisplayDelay()` | Anywhere | Longest time remote copies are shown in the past (largest interpolation delay plus one snapshot interval). For server-side hit validation. |
+| `IsDrivingRemoteCopy()` | Clients | Smooth Sync currently places this remote copy (Characters: ignore the replicated movement's transform, see [Characters](#characters-players)). |
 | `GetPredictionError()` | Owning client | Distance between the local pawn and the server's position. |
 | `IsDormantAtRest()` | Server | The actor is net dormant because it rests. |
 
