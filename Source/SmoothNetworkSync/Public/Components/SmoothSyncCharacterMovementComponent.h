@@ -2,6 +2,7 @@
 #pragma once
 #include "CoreMinimal.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Misc/EngineVersionComparison.h"
 #include "SmoothSyncCharacterMovementComponent.generated.h"
 
 
@@ -48,8 +49,13 @@ protected:
 
     virtual bool ClientUpdatePositionAfterServerUpdate() override;
 
+#if UE_VERSION_NEWER_THAN_OR_EQUAL(5, 4, 0)
     virtual void OnClientCorrectionReceived(FNetworkPredictionData_Client_Character& ClientData, float TimeStamp, FVector NewLocation, FVector NewVelocity,
         UPrimitiveComponent* NewBase, FName NewBaseBoneName, bool bHasBase, bool bBaseRelativePosition, uint8 ServerMovementMode, FVector ServerGravityDirection) override;
+#else
+    virtual void OnClientCorrectionReceived(FNetworkPredictionData_Client_Character& ClientData, float TimeStamp, FVector NewLocation, FVector NewVelocity,
+        UPrimitiveComponent* NewBase, FName NewBaseBoneName, bool bHasBase, bool bBaseRelativePosition, uint8 ServerMovementMode) override;
+#endif
 
     virtual bool ServerExceedsAllowablePositionError(float ClientTimeStamp, float DeltaTime, const FVector& Accel, const FVector& ClientWorldLocation,
         const FVector& RelativeClientLocation, UPrimitiveComponent* ClientMovementBase, FName ClientBaseBoneName, uint8 ClientMovementMode) override;

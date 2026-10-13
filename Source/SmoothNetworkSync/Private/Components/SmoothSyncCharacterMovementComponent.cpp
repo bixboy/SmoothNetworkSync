@@ -25,6 +25,7 @@ FVector USmoothSyncCharacterMovementComponent::ConsumeCorrectionDelta()
     return Delta;
 }
 
+#if UE_VERSION_NEWER_THAN_OR_EQUAL(5, 4, 0)
 void USmoothSyncCharacterMovementComponent::OnClientCorrectionReceived(FNetworkPredictionData_Client_Character& ClientData, float TimeStamp,
     FVector NewLocation, FVector NewVelocity, UPrimitiveComponent* NewBase, FName NewBaseBoneName, bool bHasBase, bool bBaseRelativePosition,
     uint8 ServerMovementMode, FVector ServerGravityDirection)
@@ -40,6 +41,23 @@ void USmoothSyncCharacterMovementComponent::OnClientCorrectionReceived(FNetworkP
     Super::OnClientCorrectionReceived(ClientData, TimeStamp, NewLocation, NewVelocity, NewBase, NewBaseBoneName, bHasBase, bBaseRelativePosition,
         ServerMovementMode, ServerGravityDirection);
 }
+#else
+void USmoothSyncCharacterMovementComponent::OnClientCorrectionReceived(FNetworkPredictionData_Client_Character& ClientData, float TimeStamp,
+    FVector NewLocation, FVector NewVelocity, UPrimitiveComponent* NewBase, FName NewBaseBoneName, bool bHasBase, bool bBaseRelativePosition,
+    uint8 ServerMovementMode)
+{
+    // Called right before the correction snaps the character to the server's (past) position.
+    // Several corrections can arrive before the replay: keep the location from before the first one.
+    if (!bHasLocationBeforeCorrection && UpdatedComponent)
+    {
+        LocationBeforeCorrection = UpdatedComponent->GetComponentLocation();
+        bHasLocationBeforeCorrection = true;
+    }
+
+    Super::OnClientCorrectionReceived(ClientData, TimeStamp, NewLocation, NewVelocity, NewBase, NewBaseBoneName, bHasBase, bBaseRelativePosition,
+        ServerMovementMode);
+}
+#endif
 
 bool USmoothSyncCharacterMovementComponent::ClientUpdatePositionAfterServerUpdate()
 {
